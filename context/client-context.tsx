@@ -10,6 +10,8 @@ export interface Client {
   company: string;
   status: 'lead' | 'prospect' | 'customer' | 'inactive';
   acquisitionStage: 'initial-contact' | 'discovery' | 'proposal' | 'negotiation' | 'closed';
+  leadTemperature: 'cold' | 'warm' | 'responded';
+  aiAcquired: boolean;
   value: number;
   notes: string;
   createdAt: string;
@@ -26,47 +28,8 @@ interface ClientContextType {
 
 const ClientContext = createContext<ClientContextType | undefined>(undefined);
 
-const INITIAL_CLIENTS: Client[] = [
-  {
-    id: '1',
-    name: 'John Smith',
-    email: 'john@coffeeco.com',
-    phone: '555-0101',
-    company: 'Coffee Co',
-    status: 'customer',
-    acquisitionStage: 'closed',
-    value: 50000,
-    notes: 'Long-term contract, monthly delivery',
-    createdAt: '2024-01-15'
-  },
-  {
-    id: '2',
-    name: 'Sarah Johnson',
-    email: 'sarah@cafebistro.com',
-    phone: '555-0102',
-    company: 'Cafe Bistro',
-    status: 'prospect',
-    acquisitionStage: 'proposal',
-    value: 25000,
-    notes: 'Interested in bulk purchasing, awaiting decision',
-    createdAt: '2024-02-20'
-  },
-  {
-    id: '3',
-    name: 'Mike Davis',
-    email: 'mike@roastersunited.com',
-    phone: '555-0103',
-    company: 'Roasters United',
-    status: 'lead',
-    acquisitionStage: 'discovery',
-    value: 15000,
-    notes: 'Initial contact, scheduled demo next week',
-    createdAt: '2024-03-10'
-  }
-];
-
 export function ClientProvider({ children }: { children: ReactNode }) {
-  const [clients, setClients] = useState<Client[]>(INITIAL_CLIENTS);
+  const [clients, setClients] = useState<Client[]>([]);
   const [loading] = useState(false);
 
   const addClient = (client: Client) => {
