@@ -11,7 +11,7 @@ interface ClientsListProps {
 }
 
 export default function ClientsList({ onSelectClient }: ClientsListProps) {
-  const { clients, deleteClient } = useClients();
+  const { clients, deleteClient, loading } = useClients();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -57,8 +57,17 @@ export default function ClientsList({ onSelectClient }: ClientsListProps) {
         </Button>
       </div>
 
-      {/* Search and Filters */}
-      <Card className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 p-4">
+      {loading ? (
+        <Card className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 p-12 text-center">
+          <div className="flex flex-col items-center justify-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
+            <p className="text-gray-600 dark:text-gray-400">Loading clients...</p>
+          </div>
+        </Card>
+      ) : (
+        <>
+          {/* Search and Filters */}
+          <Card className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 p-4">
         <div className="space-y-4">
           <Input
             placeholder="Search clients by name or company..."
@@ -138,6 +147,8 @@ export default function ClientsList({ onSelectClient }: ClientsListProps) {
         <Card className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 p-12 text-center">
           <p className="text-gray-600 dark:text-gray-400">No clients found matching your criteria.</p>
         </Card>
+      )}
+        </>
       )}
     </div>
   );

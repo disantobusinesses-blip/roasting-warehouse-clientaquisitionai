@@ -18,6 +18,7 @@ export interface Client {
 
 interface ClientContextType {
   clients: Client[];
+  loading: boolean;
   addClient: (client: Client) => void;
   updateClient: (id: string, client: Partial<Client>) => void;
   deleteClient: (id: string) => void;
@@ -173,7 +174,7 @@ export function ClientProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <ClientContext.Provider value={{ clients, addClient, updateClient, deleteClient, getClientById }}>
+    <ClientContext.Provider value={{ clients, loading, addClient, updateClient, deleteClient, getClientById }}>
       {children}
     </ClientContext.Provider>
   );

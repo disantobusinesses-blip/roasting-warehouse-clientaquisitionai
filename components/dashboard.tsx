@@ -10,7 +10,7 @@ interface DashboardProps {
 }
 
 export default function Dashboard({ onNavigateToClients }: DashboardProps) {
-  const { clients } = useClients();
+  const { clients, loading } = useClients();
 
   const stats = {
     totalClients: clients.length,
@@ -33,6 +33,17 @@ export default function Dashboard({ onNavigateToClients }: DashboardProps) {
     { status: 'Customer', count: clients.filter(c => c.status === 'customer').length },
     { status: 'Inactive', count: clients.filter(c => c.status === 'inactive').length },
   ];
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600 dark:text-gray-400">Loading client data...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
