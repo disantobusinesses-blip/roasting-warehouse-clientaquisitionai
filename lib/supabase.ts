@@ -13,6 +13,11 @@ export function getSupabaseClient(): SupabaseClient | null {
   if (!url || !key) return null;
   browserClient = createClient(url, key, {
     auth: { persistSession: false },
+    global: {
+      // Bypass the browser HTTP cache so Supabase REST responses are never
+      // served as 304 Not Modified (stale/empty data on repeated mounts).
+      fetch: (input, init) => fetch(input, { ...init, cache: 'no-store' }),
+    },
   });
   return browserClient;
 }
