@@ -24,6 +24,8 @@ export default function ClientDetail({ clientId, onBack }: ClientDetailProps) {
       company: '',
       status: 'lead' as const,
       acquisitionStage: 'initial-contact' as const,
+      leadTemperature: 'cold' as const,
+      aiAcquired: false,
       value: 0,
       notes: '',
       createdAt: new Date().toISOString().split('T')[0],
@@ -42,11 +44,16 @@ export default function ClientDetail({ clientId, onBack }: ClientDetailProps) {
   }
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: name === 'value' ? parseInt(value) : value
-    }));
+    const target = e.target;
+    const { name, value } = target;
+    if (target instanceof HTMLInputElement && target.type === 'checkbox') {
+      setFormData(prev => ({ ...prev, [name]: target.checked }));
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        [name]: name === 'value' ? parseInt(value) : value
+      }));
+    }
   };
 
   const handleSave = () => {
@@ -59,8 +66,17 @@ export default function ClientDetail({ clientId, onBack }: ClientDetailProps) {
       case 'customer': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
       case 'prospect': return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200';
       case 'lead': return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200';
-      case 'inactive': return 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200';
+      case 'inactive': return 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300';
       default: return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const getTempBadge = (temp: string) => {
+    switch (temp) {
+      case 'cold': return { label: '❄️ Cold', cls: 'bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300' };
+      case 'warm': return { label: '🔥 Warm', cls: 'bg-orange-50 text-orange-700 dark:bg-orange-950 dark:text-orange-300' };
+      case 'responded': return { label: '💬 Responded', cls: 'bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300' };
+      default: return { label: temp, cls: 'bg-gray-100 text-gray-700' };
     }
   };
 
@@ -189,7 +205,7 @@ export default function ClientDetail({ clientId, onBack }: ClientDetailProps) {
                     name="status"
                     value={formData.status}
                     onChange={handleInputChange}
-                    className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded px-3 py-2 text-black dark:text-white"
+                    className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded px-3 py-2 text-black dark:text-white mt-1"
                   >
                     <option value="lead">Lead</option>
                     <option value="prospect">Prospect</option>
@@ -197,9 +213,53 @@ export default function ClientDetail({ clientId, onBack }: ClientDetailProps) {
                     <option value="inactive">Inactive</option>
                   </select>
                 ) : (
-                  <span className={`inline-block text-xs font-semibold px-3 py-1 rounded ${getStatusColor(formData.status)}`}>
-                    {formData.status.charAt(0).toUpperCase() + formData.status.slice(1)}
+                  <div className="mt-1">
+                    <span className={`inline-block text-xs font-semibold px-3 py-1 rounded-full ${getStatusColor(formData.status)}`}>
+                      {formData.status.charAt(0).toUpperCase() + formData.status.slice(1)}
+                    </span>
+                  </div>
+                )}
+              </div>
+              <div>
+                <label className="text-sm text-gray-600 dark:text-gray-400">Lead Temperature</label>
+                {isEditing ? (
+                  <select
+                    name="leadTemperature"
+                    value={formData.leadTemperature}
+                    onChange={handleInputChange}
+                    className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded px-3 py-2 text-black dark:text-white mt-1"
+                  >
+                    <option value="cold">❄️ Cold</option>
+                    <option value="warm">🔥 Warm</option>
+                    <option value="responded">💬 Responded</option>
+                  </select>
+                ) : (
+                  <div className="mt-1">
+                    <span className={`inline-block text-xs font-medium px-3 py-1 rounded-full ${getTempBadge(formData.leadTemperature).cls}`}>
+                      {getTempBadge(formData.leadTemperature).label}
+                    </span>
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center gap-2 pt-1">
+                {isEditing ? (
+                  <>
+                    <input
+                      type="checkbox"
+                      id="aiAcquired"
+                      name="aiAcquired"
+                      checked={formData.aiAcquired}
+                      onChange={handleInputChange}
+                      className="w-4 h-4 accent-emerald-600"
+                    />
+                    <label htmlFor="aiAcquired" className="text-sm text-gray-700 dark:text-gray-300">🤖 AI-acquired lead</label>
+                  </>
+                ) : formData.aiAcquired ? (
+                  <span className="text-xs font-medium px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+                    🤖 AI Acquired
                   </span>
+                ) : (
+                  <span className="text-xs text-gray-400 dark:text-gray-500">Not AI-acquired</span>
                 )}
               </div>
             </div>
