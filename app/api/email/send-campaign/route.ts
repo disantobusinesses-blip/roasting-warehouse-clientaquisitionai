@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { getMailer, getFromAddress } from '@/lib/mailer';
 import { getServerSupabaseClient } from '@/lib/supabase';
+import { isValidEmail } from '@/lib/email-validator';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -86,7 +87,7 @@ export async function POST(req: NextRequest) {
         });
 
         // Validate email
-        if (!r.to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(r.to)) {
+        if (!isValidEmail(r.to)) {
           failedCount += 1;
           send({
             type: 'progress',

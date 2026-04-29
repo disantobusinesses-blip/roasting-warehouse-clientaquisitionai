@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMailer, getFromAddress } from '@/lib/mailer';
 import { getServerSupabaseClient } from '@/lib/supabase';
+import { isValidEmail } from '@/lib/email-validator';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -30,7 +31,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Basic email format guard.
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+  if (!isValidEmail(to)) {
     return NextResponse.json({ error: 'Invalid recipient email' }, { status: 400 });
   }
 
