@@ -1,10 +1,10 @@
 'use client';
 
 import Image from 'next/image';
-import { LayoutDashboard, Users, Mail, Menu, X } from 'lucide-react';
+import { LayoutDashboard, Users, Mail, Map as MapIcon, Menu, X } from 'lucide-react';
 import { useState } from 'react';
 
-type View = 'dashboard' | 'leads' | 'email-centre';
+type View = 'dashboard' | 'leads' | 'email-centre' | 'map';
 
 interface SidebarProps {
   currentView: View;
@@ -15,6 +15,7 @@ const navItems = [
   { id: 'dashboard' as View, label: 'Dashboard', icon: LayoutDashboard },
   { id: 'leads' as View, label: 'Leads', icon: Users },
   { id: 'email-centre' as View, label: 'Email Centre', icon: Mail },
+  { id: 'map' as View, label: 'Map', icon: MapIcon },
 ];
 
 export default function Sidebar({ currentView, onViewChange }: SidebarProps) {
