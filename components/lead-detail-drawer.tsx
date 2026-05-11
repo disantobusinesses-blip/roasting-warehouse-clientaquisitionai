@@ -1,347 +1,598 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useClients, Client } from '@/context/client-context';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { X, Save, Edit2, Mail, Phone, Building, Calendar, DollarSign } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  X,
+  Star,
+  MapPin,
+  Phone,
+  Mail,
+  Globe,
+  Map as MapIcon,
+  Sparkles,
+  PhoneCall,
+  Loader2,
+  Minus,
+  Plus,
+  CheckCircle2,
+} from 'lucide-react';
+import { formatDistanceToNow } from 'date-fns';
+import { useLeads } from '@/context/leads-context';
+import {
+  CONTACT_STAGES,
+  CONTACT_STAGE_LABEL,
+  type ContactActivity,
+  type ContactStage,
+} from '@/lib/types';
+
+const GOLD = '#C9A84C';
 
 interface LeadDetailDrawerProps {
   leadId: string | null;
   open: boolean;
   onClose: () => void;
+  onDraftOutreach?: (leadId: string) => void;
 }
 
-export default function LeadDetailDrawer({ leadId, open, onClose }: LeadDetailDrawerProps) {
-  const { getClientById, updateClient } = useClients();
-  const client = leadId ? getClientById(leadId) : null;
-  const [isEditing, setIsEditing] = useState(false);
-  const [formData, setFormData] = useState<Partial<Client>>({});
+export default function LeadDetailDrawer({
+  leadId,
+  open,
+  onClose,
+  onDraftOutreach,
+}: LeadDetailDrawerProps) {
+  const {
+    leads,
+    setLeadStage,
+    setAttempts,
+    saveNotes,
+    logContact,
+    getActivity,
+  } = useLeads();
+
+  const lead = leadId ? leads.find((l) => l.id === leadId) ?? null : null;
+
+  // Local notes mirror for textarea; syncs with lead.contact_notes.
+  const [notesDraft, setNotesDraft] = useState('');
+  const [notesSaving, setNotesSaving] = useState(false);
+  const [notesStatus, setNotesStatus] = useState<string | null>(null);
+
+  const [stageSaving, setStageSaving] = useState<ContactStage | null>(null);
+
+  const [activity, setActivity] = useState<ContactActivity[]>([]);
+  const [activityLoading, setActivityLoading] = useState(false);
+
+  // Inline call form
+  const [callOpen, setCallOpen] = useState(false);
+  const [callOutcome, setCallOutcome] = useState('reached');
+  const [callNotes, setCallNotes] = useState('');
+  const [callSaving, setCallSaving] = useState(false);
+
+  // Reset drawer state when lead changes / drawer opens
+  useEffect(() => {
+    if (!open || !lead) return;
+    setNotesDraft(lead.contact_notes ?? '');
+    setNotesStatus(null);
+    setCallOpen(false);
+    setCallOutcome('reached');
+    setCallNotes('');
+  }, [open, lead?.id]);
+
+  // Fetch activity history
+  const refreshActivity = useCallback(async () => {
+    if (!lead) return;
+    setActivityLoading(true);
+    const rows = await getActivity(lead.id);
+    setActivity(rows);
+    setActivityLoading(false);
+  }, [lead?.id, getActivity]);
 
   useEffect(() => {
-    if (client) {
-      setFormData(client);
+    if (open && lead) {
+      void refreshActivity();
     }
-    setIsEditing(false);
-  }, [client]);
+  }, [open, lead?.id, refreshActivity]);
 
-  if (!open || !client) return null;
+  // Escape closes drawer
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
 
-  const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
-  ) => {
-    const target = e.target;
-    const { name, value } = target;
-    if (target instanceof HTMLInputElement && target.type === 'checkbox') {
-      setFormData(prev => ({ ...prev, [name]: target.checked }));
-    } else {
-      setFormData(prev => ({ ...prev, [name]: name === 'value' ? Number(value) : value }));
-    }
-  };
+  if (!open || !lead) {
+    return (
+      <Backdrop
+        open={open}
+        onClose={onClose}
+      />
+    );
+  }
 
-  const handleSave = () => {
-    if (leadId && formData) {
-      updateClient(leadId, formData);
-      setIsEditing(false);
-    }
-  };
+  const currentStage = (lead.contact_stage ?? 'not_contacted') as ContactStage;
+  const attempts = lead.contact_attempts ?? 0;
 
-  const getStatusStyles = (status: string) => {
-    switch (status) {
-      case 'customer': return 'bg-green-500/20 text-green-400 border-green-500/30';
-      case 'prospect': return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
-      case 'lead': return 'bg-gold/20 text-gold border-gold/30';
-      case 'inactive': return 'bg-secondary text-muted-foreground border-border';
-      default: return 'bg-secondary text-muted-foreground border-border';
-    }
-  };
-
-  const getTempStyles = (temp: string) => {
-    switch (temp) {
-      case 'cold': return 'bg-blue-500/20 text-blue-400';
-      case 'warm': return 'bg-orange-500/20 text-orange-400';
-      case 'responded': return 'bg-green-500/20 text-green-400';
-      default: return 'bg-secondary text-muted-foreground';
+  const handleStageClick = async (stage: ContactStage) => {
+    setStageSaving(stage);
+    try {
+      await setLeadStage(lead.id, stage);
+      // Refresh activity to show new row
+      await refreshActivity();
+    } finally {
+      setStageSaving(null);
     }
   };
 
-  const formatStage = (stage: string) =>
-    stage.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  const handleAttempts = async (delta: number) => {
+    const next = Math.max(0, attempts + delta);
+    await setAttempts(lead.id, next);
+  };
+
+  const handleNotesBlur = async () => {
+    if (notesDraft === (lead.contact_notes ?? '')) return;
+    setNotesSaving(true);
+    setNotesStatus(null);
+    try {
+      await saveNotes(lead.id, notesDraft);
+      setNotesStatus('Saved');
+      setTimeout(() => setNotesStatus(null), 1500);
+    } catch (err) {
+      setNotesStatus(
+        `Error: ${err instanceof Error ? err.message : 'Failed'}`,
+      );
+    } finally {
+      setNotesSaving(false);
+    }
+  };
+
+  const handleLogCall = async () => {
+    setCallSaving(true);
+    try {
+      await logContact({
+        leadId: lead.id,
+        stage: currentStage === 'not_contacted' ? 'contacted' : currentStage,
+        channel: 'phone',
+        outcome: callOutcome,
+        notes: callNotes.trim() || null,
+      });
+      await refreshActivity();
+      setCallOpen(false);
+      setCallNotes('');
+    } finally {
+      setCallSaving(false);
+    }
+  };
 
   return (
     <>
-      {/* Backdrop */}
-      <div 
-        className={`fixed inset-0 bg-black/60 z-40 transition-opacity duration-300 ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-        onClick={onClose}
-      />
-      
-      {/* Drawer */}
+      <Backdrop open={open} onClose={onClose} />
       <aside
-        className={`
-          fixed top-0 right-0 z-50 h-full w-full sm:w-[480px] bg-card border-l border-border
-          transform transition-transform duration-300 ease-in-out overflow-y-auto
-          ${open ? 'translate-x-0' : 'translate-x-full'}
-        `}
+        className="fixed top-0 right-0 z-50 h-full w-full sm:w-[480px] bg-card border-l border-border overflow-y-auto"
+        style={{ transform: 'translateX(0)' }}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Lead details for ${lead.business_name}`}
       >
         {/* Header */}
-        <div className="sticky top-0 z-10 flex items-center justify-between p-6 border-b border-border bg-card">
-          <h2 className="text-xl font-semibold text-foreground">Lead Details</h2>
-          <div className="flex items-center gap-2">
-            {isEditing ? (
-              <>
-                <Button
-                  size="sm"
-                  onClick={handleSave}
-                  className="bg-gold hover:bg-gold/90 text-primary-foreground gap-1.5"
+        <div className="sticky top-0 z-10 bg-card border-b border-border px-6 py-4 flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h2 className="text-xl font-bold text-foreground truncate">
+              {lead.business_name}
+            </h2>
+            <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5">
+              <MapPin className="w-3 h-3" />
+              {[lead.suburb, lead.state].filter(Boolean).join(', ') || '—'}
+            </p>
+            <div className="flex items-center gap-3 mt-2">
+              <RatingStars rating={lead.google_rating} />
+              {lead.google_maps_url && (
+                <a
+                  href={lead.google_maps_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-[#C9A84C] hover:underline inline-flex items-center gap-1"
                 >
-                  <Save className="w-4 h-4" />
-                  Save
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    setFormData(client);
-                    setIsEditing(false);
-                  }}
-                  className="border-border text-foreground"
+                  <MapIcon className="w-3 h-3" /> Maps
+                </a>
+              )}
+              {lead.website && (
+                <a
+                  href={normalizeUrl(lead.website)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-[#C9A84C] hover:underline inline-flex items-center gap-1"
                 >
-                  Cancel
-                </Button>
-              </>
-            ) : (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setIsEditing(true)}
-                className="border-border text-foreground gap-1.5"
-              >
-                <Edit2 className="w-4 h-4" />
-                Edit
-              </Button>
-            )}
-            <button
-              onClick={onClose}
-              className="p-2 rounded-lg hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
+                  <Globe className="w-3 h-3" /> Website
+                </a>
+              )}
+            </div>
           </div>
+          <button
+            onClick={onClose}
+            className="p-2 rounded-lg hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+            aria-label="Close drawer"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
-        {/* Content */}
+        {/* Body */}
         <div className="p-6 space-y-6">
-          {/* Name & Company */}
-          <div>
-            {isEditing ? (
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-sm text-muted-foreground mb-1.5">Name</label>
-                  <Input
-                    name="name"
-                    value={formData.name || ''}
-                    onChange={handleChange}
-                    className="bg-input border-border text-foreground"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-muted-foreground mb-1.5">Company</label>
-                  <Input
-                    name="company"
-                    value={formData.company || ''}
-                    onChange={handleChange}
-                    className="bg-input border-border text-foreground"
-                  />
-                </div>
-              </div>
-            ) : (
-              <>
-                <h3 className="text-2xl font-bold text-foreground">{client.name}</h3>
-                <p className="text-muted-foreground flex items-center gap-2 mt-1">
-                  <Building className="w-4 h-4" />
-                  {client.company}
-                </p>
-              </>
-            )}
-          </div>
-
-          {/* Status Badges */}
-          <div className="flex flex-wrap gap-2">
-            {isEditing ? (
-              <>
-                <select
-                  name="status"
-                  value={formData.status || 'lead'}
-                  onChange={handleChange}
-                  className={`appearance-none px-3 py-1.5 rounded-full text-sm font-medium border cursor-pointer ${getStatusStyles(formData.status || 'lead')}`}
-                >
-                  <option value="lead">Lead</option>
-                  <option value="prospect">Prospect</option>
-                  <option value="customer">Customer</option>
-                  <option value="inactive">Inactive</option>
-                </select>
-                <select
-                  name="leadTemperature"
-                  value={formData.leadTemperature || 'cold'}
-                  onChange={handleChange}
-                  className={`appearance-none px-3 py-1.5 rounded-full text-sm font-medium cursor-pointer ${getTempStyles(formData.leadTemperature || 'cold')}`}
-                >
-                  <option value="cold">Cold</option>
-                  <option value="warm">Warm</option>
-                  <option value="responded">Responded</option>
-                </select>
-              </>
-            ) : (
-              <>
-                <span className={`px-3 py-1.5 rounded-full text-sm font-medium border ${getStatusStyles(client.status)}`}>
-                  {client.status.charAt(0).toUpperCase() + client.status.slice(1)}
-                </span>
-                <span className={`px-3 py-1.5 rounded-full text-sm font-medium ${getTempStyles(client.leadTemperature)}`}>
-                  {client.leadTemperature.charAt(0).toUpperCase() + client.leadTemperature.slice(1)}
-                </span>
-                {client.aiAcquired && (
-                  <span className="px-3 py-1.5 rounded-full text-sm font-medium bg-green-500/20 text-green-400">
-                    AI Acquired
-                  </span>
-                )}
-              </>
-            )}
-          </div>
-
-          {/* Contact Info */}
-          <div className="space-y-3 p-4 rounded-lg bg-secondary/50">
-            <h4 className="text-sm font-medium text-foreground mb-3">Contact Information</h4>
-            {isEditing ? (
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-sm text-muted-foreground mb-1.5">Email</label>
-                  <Input
-                    name="email"
-                    type="email"
-                    value={formData.email || ''}
-                    onChange={handleChange}
-                    className="bg-input border-border text-foreground"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-muted-foreground mb-1.5">Phone</label>
-                  <Input
-                    name="phone"
-                    value={formData.phone || ''}
-                    onChange={handleChange}
-                    className="bg-input border-border text-foreground"
-                  />
-                </div>
-              </div>
-            ) : (
-              <>
-                <div className="flex items-center gap-3 text-sm">
-                  <Mail className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-foreground">{client.email || 'No email'}</span>
-                </div>
-                <div className="flex items-center gap-3 text-sm">
-                  <Phone className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-foreground">{client.phone || 'No phone'}</span>
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* Pipeline Info */}
-          <div className="space-y-3 p-4 rounded-lg bg-secondary/50">
-            <h4 className="text-sm font-medium text-foreground mb-3">Pipeline</h4>
-            {isEditing ? (
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-sm text-muted-foreground mb-1.5">Stage</label>
-                  <select
-                    name="acquisitionStage"
-                    value={formData.acquisitionStage || 'initial-contact'}
-                    onChange={handleChange}
-                    className="w-full bg-input border border-border rounded-lg px-3 py-2 text-foreground text-sm"
-                  >
-                    <option value="initial-contact">Initial Contact</option>
-                    <option value="discovery">Discovery</option>
-                    <option value="proposal">Proposal</option>
-                    <option value="negotiation">Negotiation</option>
-                    <option value="closed">Closed</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm text-muted-foreground mb-1.5">Deal Value</label>
-                  <Input
-                    name="value"
-                    type="number"
-                    value={formData.value || ''}
-                    onChange={handleChange}
-                    className="bg-input border-border text-foreground"
-                  />
-                </div>
-              </div>
-            ) : (
-              <>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Stage</span>
-                  <span className="text-foreground font-medium">{formatStage(client.acquisitionStage)}</span>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Deal Value</span>
-                  <span className="text-gold font-bold flex items-center gap-1">
-                    <DollarSign className="w-4 h-4" />
-                    {client.value > 0 ? client.value.toLocaleString() : '0'}
-                  </span>
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* AI Acquired Toggle (Edit mode) */}
-          {isEditing && (
-            <div className="flex items-center gap-2 p-4 rounded-lg bg-secondary/50">
-              <input
-                type="checkbox"
-                id="aiAcquired"
-                name="aiAcquired"
-                checked={formData.aiAcquired || false}
-                onChange={handleChange}
-                className="w-4 h-4 rounded border-border bg-input accent-gold"
+          {/* Contact info */}
+          <section>
+            <SectionLabel>Contact Info</SectionLabel>
+            <div className="grid grid-cols-1 gap-2 p-4 rounded-lg bg-secondary/40 border border-border">
+              <InfoRow
+                icon={<Phone className="w-4 h-4" />}
+                value={lead.contact_phone}
+                href={lead.contact_phone ? `tel:${lead.contact_phone}` : undefined}
+                empty="No phone"
               />
-              <label htmlFor="aiAcquired" className="text-sm text-foreground">
-                AI-acquired lead
-              </label>
+              <InfoRow
+                icon={<Mail className="w-4 h-4" />}
+                value={lead.contact_email}
+                href={lead.contact_email ? `mailto:${lead.contact_email}` : undefined}
+                empty="No email"
+              />
+              <InfoRow
+                icon={<MapPin className="w-4 h-4" />}
+                value={[lead.suburb, lead.state].filter(Boolean).join(', ') || null}
+                empty="No address"
+              />
             </div>
-          )}
+          </section>
+
+          {/* Stage selector */}
+          <section>
+            <SectionLabel>Contact Stage</SectionLabel>
+            <div className="grid grid-cols-3 gap-2">
+              {CONTACT_STAGES.map((s) => {
+                const active = s === currentStage;
+                const busy = stageSaving === s;
+                return (
+                  <button
+                    key={s}
+                    onClick={() => handleStageClick(s)}
+                    disabled={stageSaving !== null}
+                    className={`relative text-xs font-medium px-2.5 py-2.5 rounded-lg border transition-all ${
+                      active
+                        ? 'text-black shadow-[0_0_18px_rgba(201,168,76,0.35)]'
+                        : 'border-[#2a2a2a] text-zinc-300 hover:border-[#C9A84C]/50 hover:text-foreground'
+                    } disabled:opacity-50 disabled:cursor-not-allowed`}
+                    style={
+                      active
+                        ? { background: GOLD, borderColor: GOLD }
+                        : { background: '#121212' }
+                    }
+                  >
+                    {busy && (
+                      <Loader2 className="w-3 h-3 animate-spin absolute top-1.5 right-1.5" />
+                    )}
+                    {CONTACT_STAGE_LABEL[s]}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          {/* Attempts counter */}
+          <section>
+            <SectionLabel>Contact Attempts</SectionLabel>
+            <div className="flex items-center justify-between p-4 rounded-lg bg-secondary/40 border border-border">
+              <div>
+                <p className="text-3xl font-bold text-foreground">{attempts}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {lead.last_contacted_at
+                    ? `Last: ${safeRelative(lead.last_contacted_at)}`
+                    : 'Never contacted'}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleAttempts(-1)}
+                  disabled={attempts <= 0}
+                  className="w-9 h-9 inline-flex items-center justify-center rounded-md border border-[#2a2a2a] text-zinc-300 hover:border-[#C9A84C]/50 hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  aria-label="Decrease attempts"
+                >
+                  <Minus className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => handleAttempts(1)}
+                  className="w-9 h-9 inline-flex items-center justify-center rounded-md border border-[#2a2a2a] text-zinc-300 hover:border-[#C9A84C]/50 hover:text-foreground transition-colors"
+                  aria-label="Increase attempts"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </section>
 
           {/* Notes */}
-          <div className="space-y-3">
-            <h4 className="text-sm font-medium text-foreground">Notes</h4>
-            {isEditing ? (
-              <textarea
-                name="notes"
-                value={formData.notes || ''}
-                onChange={handleChange}
-                rows={4}
-                placeholder="Add notes about this lead..."
-                className="w-full bg-input border border-border rounded-lg px-3 py-2 text-foreground placeholder:text-muted-foreground text-sm resize-none"
-              />
-            ) : (
-              <p className="text-sm text-muted-foreground p-4 rounded-lg bg-secondary/50">
-                {client.notes || 'No notes added'}
-              </p>
-            )}
-          </div>
-
-          {/* Timeline */}
-          <div className="space-y-3 pt-4 border-t border-border">
-            <h4 className="text-sm font-medium text-foreground">Timeline</h4>
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Calendar className="w-4 h-4" />
-              <span>Added on {new Date(client.createdAt).toLocaleDateString()}</span>
+          <section>
+            <div className="flex items-center justify-between mb-1.5">
+              <SectionLabel className="!mb-0">Notes</SectionLabel>
+              {notesSaving && (
+                <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                  <Loader2 className="w-3 h-3 animate-spin" /> Saving…
+                </span>
+              )}
+              {notesStatus && (
+                <span
+                  className={`text-[10px] flex items-center gap-1 ${
+                    notesStatus.startsWith('Error')
+                      ? 'text-red-400'
+                      : 'text-emerald-400'
+                  }`}
+                >
+                  <CheckCircle2 className="w-3 h-3" /> {notesStatus}
+                </span>
+              )}
             </div>
-          </div>
+            <textarea
+              value={notesDraft}
+              onChange={(e) => setNotesDraft(e.target.value)}
+              onBlur={handleNotesBlur}
+              rows={4}
+              placeholder="Add notes about this lead..."
+              className="w-full bg-[#121212] border border-[#1f1f1f] rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-[#C9A84C]/50 resize-none"
+            />
+          </section>
+
+          {/* Activity history */}
+          <section>
+            <SectionLabel>Activity History</SectionLabel>
+            {activityLoading ? (
+              <div className="space-y-2">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="h-12 rounded-md bg-secondary/40 animate-pulse"
+                  />
+                ))}
+              </div>
+            ) : activity.length === 0 ? (
+              <p className="text-xs text-muted-foreground p-4 rounded-lg bg-secondary/30 border border-border">
+                No contact history yet.
+              </p>
+            ) : (
+              <ol className="space-y-2 relative pl-4 before:absolute before:left-1 before:top-1 before:bottom-1 before:w-px before:bg-border">
+                {activity.map((a) => (
+                  <li
+                    key={a.id}
+                    className="relative pl-3 py-2 rounded-md bg-secondary/20 border border-border"
+                  >
+                    <span
+                      className="absolute -left-3 top-3 w-2 h-2 rounded-full"
+                      style={{ background: GOLD }}
+                    />
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-xs text-foreground">
+                          <span className="font-medium">
+                            #{a.attempt_number ?? '—'}
+                          </span>
+                          <span className="text-muted-foreground"> · </span>
+                          <span>
+                            {a.stage
+                              ? CONTACT_STAGE_LABEL[a.stage as ContactStage] ??
+                                a.stage
+                              : '—'}
+                          </span>
+                          {a.channel && (
+                            <>
+                              <span className="text-muted-foreground"> · </span>
+                              <span className="text-muted-foreground">
+                                {a.channel}
+                              </span>
+                            </>
+                          )}
+                          {a.outcome && (
+                            <>
+                              <span className="text-muted-foreground"> · </span>
+                              <span className="text-muted-foreground">
+                                {a.outcome}
+                              </span>
+                            </>
+                          )}
+                        </p>
+                        {a.notes && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {a.notes}
+                          </p>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                        {safeRelative(a.created_at)}
+                      </span>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </section>
+        </div>
+
+        {/* Sticky footer — quick actions */}
+        <div className="sticky bottom-0 z-10 bg-card border-t border-border p-4 space-y-3">
+          {callOpen ? (
+            <div className="space-y-2 p-3 rounded-lg bg-secondary/40 border border-border">
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                Log a Call
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <select
+                  value={callOutcome}
+                  onChange={(e) => setCallOutcome(e.target.value)}
+                  className="bg-[#121212] border border-[#1f1f1f] rounded-md px-2 py-1.5 text-xs text-foreground focus:outline-none focus:border-[#C9A84C]/50"
+                >
+                  <option value="reached">Reached</option>
+                  <option value="voicemail">Voicemail</option>
+                  <option value="no_answer">No Answer</option>
+                  <option value="interested">Interested</option>
+                  <option value="not_interested">Not Interested</option>
+                </select>
+                <input
+                  value={callNotes}
+                  onChange={(e) => setCallNotes(e.target.value)}
+                  placeholder="Quick note…"
+                  className="bg-[#121212] border border-[#1f1f1f] rounded-md px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-[#C9A84C]/50"
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setCallOpen(false)}
+                  disabled={callSaving}
+                  className="text-xs px-3 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleLogCall}
+                  disabled={callSaving}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md text-black disabled:opacity-50 transition-all hover:brightness-110"
+                  style={{ background: GOLD }}
+                >
+                  {callSaving ? (
+                    <>
+                      <Loader2 className="w-3 h-3 animate-spin" /> Saving…
+                    </>
+                  ) : (
+                    'Save'
+                  )}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => onDraftOutreach?.(lead.id)}
+                className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg font-semibold text-black text-sm transition-all hover:brightness-110"
+                style={{ background: GOLD }}
+              >
+                <Sparkles className="w-4 h-4" />
+                Draft Outreach Email
+              </button>
+              <button
+                onClick={() => setCallOpen(true)}
+                className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg border border-[#2a2a2a] text-foreground text-sm hover:border-[#C9A84C]/50 transition-colors"
+              >
+                <PhoneCall className="w-4 h-4" />
+                Log a Call
+              </button>
+            </div>
+          )}
         </div>
       </aside>
     </>
   );
+}
+
+/* ────────────────────────────────────────────────────────────────────────── */
+
+function Backdrop({
+  open,
+  onClose,
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
+  if (!open) return null;
+  return (
+    <div
+      className="fixed inset-0 bg-black/60 z-40 transition-opacity"
+      onClick={onClose}
+    />
+  );
+}
+
+function SectionLabel({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <p
+      className={`text-[10px] uppercase tracking-wider text-muted-foreground mb-2 ${
+        className ?? ''
+      }`}
+    >
+      {children}
+    </p>
+  );
+}
+
+function InfoRow({
+  icon,
+  value,
+  href,
+  empty,
+}: {
+  icon: React.ReactNode;
+  value: string | null;
+  href?: string;
+  empty: string;
+}) {
+  if (!value) {
+    return (
+      <div className="flex items-center gap-3 text-sm text-muted-foreground">
+        <span className="text-muted-foreground/70">{icon}</span>
+        <span>{empty}</span>
+      </div>
+    );
+  }
+  const content = (
+    <div className="flex items-center gap-3 text-sm text-foreground">
+      <span className="text-muted-foreground">{icon}</span>
+      <span className="truncate">{value}</span>
+    </div>
+  );
+  if (href) {
+    return (
+      <a href={href} className="hover:text-[#C9A84C] transition-colors">
+        {content}
+      </a>
+    );
+  }
+  return content;
+}
+
+function RatingStars({ rating }: { rating: number | null }) {
+  if (rating == null) {
+    return <span className="text-xs text-muted-foreground">no rating</span>;
+  }
+  const full = Math.round(rating);
+  return (
+    <span className="inline-flex items-center gap-0.5">
+      {[0, 1, 2, 3, 4].map((i) => (
+        <Star
+          key={i}
+          className="w-3.5 h-3.5"
+          style={{
+            color: i < full ? GOLD : '#3a3a3a',
+            fill: i < full ? GOLD : 'none',
+          }}
+        />
+      ))}
+      <span className="text-xs ml-1 text-muted-foreground">
+        {rating.toFixed(1)}
+      </span>
+    </span>
+  );
+}
+
+function normalizeUrl(u: string): string {
+  if (/^https?:\/\//i.test(u)) return u;
+  return `https://${u}`;
+}
+
+function safeRelative(ts: string): string {
+  try {
+    return formatDistanceToNow(new Date(ts), { addSuffix: true });
+  } catch {
+    return '—';
+  }
 }
