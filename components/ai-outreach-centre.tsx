@@ -385,7 +385,8 @@ export default function AIOutreachCentre({
   }
 
   function selectAllMass() {
-    setSelectedMassIds(new Set(leads.filter((l) => l.contact_email).map((l) => l.id)));
+    // Select every currently loaded lead, regardless of email/status.
+    setSelectedMassIds(new Set(leads.map((l) => l.id)));
   }
 
   function selectHotMass() {
@@ -395,10 +396,15 @@ export default function AIOutreachCentre({
   }
 
   function selectNoEmailSentMass() {
+    // Spec: drive this filter from contact_stage = 'not_contacted'
+    // (the legacy email_status field no longer gates this quick filter).
     setSelectedMassIds(
       new Set(
         leads
-          .filter((l) => (l.email_status == null || l.email_status === 'not_sent') && l.contact_email)
+          .filter(
+            (l) =>
+              (l.contact_stage == null || l.contact_stage === 'not_contacted'),
+          )
           .map((l) => l.id),
       ),
     );
