@@ -13,10 +13,12 @@ import {
 } from '@/lib/types';
 import LogContactModal from '@/components/log-contact-modal';
 import AddLeadModal from '@/components/add-lead-modal';
+import MarkAsClientModal from '@/components/mark-as-client-modal';
 
 const GOLD = '#C9A84C';
 
 type StageFilter = 'all' | ContactStage;
+type ClientFilter = 'all' | 'leads' | 'clients';
 
 interface LeadsTableProps {
   onSelectLead: (leadId: string) => void;
@@ -26,14 +28,17 @@ export default function LeadsTable({ onSelectLead }: LeadsTableProps) {
   const { leads, loading, error } = useLeads();
   const [search, setSearch] = useState('');
   const [stageFilter, setStageFilter] = useState<StageFilter>('all');
+  const [clientFilter, setClientFilter] = useState<ClientFilter>('all');
   const [logLeadId, setLogLeadId] = useState<string | null>(null);
   const [logOpen, setLogOpen] = useState(false);
+  const [clientLeadId, setClientLeadId] = useState<string | null>(null);
+  const [clientOpen, setClientOpen] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [keyboardIndex, setKeyboardIndex] = useState<number | null>(null);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return leads.filter((l) => {
+    const list = leads.filter((l) => {
       const matchesSearch =
         !q ||
         l.business_name?.toLowerCase().includes(q) ||
@@ -41,14 +46,37 @@ export default function LeadsTable({ onSelectLead }: LeadsTableProps) {
       const matchesStage =
         stageFilter === 'all' ||
         (l.contact_stage ?? 'not_contacted') === stageFilter;
-      return matchesSearch && matchesStage;
+      const isClient = !!l.is_existing_client;
+      const matchesClient =
+        clientFilter === 'all'
+          ? true
+          : clientFilter === 'clients'
+            ? isClient
+            : !isClient;
+      return matchesSearch && matchesStage && matchesClient;
     });
-  }, [leads, search, stageFilter]);
+
+    // When viewing "All", pin existing clients to the top.
+    if (clientFilter === 'all') {
+      return [...list].sort((a, b) => {
+        const ac = a.is_existing_client ? 1 : 0;
+        const bc = b.is_existing_client ? 1 : 0;
+        if (ac !== bc) return bc - ac;
+        return (a.business_name ?? '').localeCompare(b.business_name ?? '');
+      });
+    }
+    return list;
+  }, [leads, search, stageFilter, clientFilter]);
+
+  const clientCount = useMemo(
+    () => leads.filter((l) => l.is_existing_client).length,
+    [leads],
+  );
 
   // Reset keyboard cursor when filters change.
   useEffect(() => {
     setKeyboardIndex(null);
-  }, [search, stageFilter]);
+  }, [search, stageFilter, clientFilter]);
 
   // Keyboard navigation (J/K/Enter/Escape).
   useEffect(() => {
@@ -56,7 +84,7 @@ export default function LeadsTable({ onSelectLead }: LeadsTableProps) {
       // Ignore when typing in inputs
       const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
       if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
-      if (logOpen || showAddModal) return;
+      if (logOpen || showAddModal || clientOpen) return;
 
       if (e.key === 'j' || e.key === 'J') {
         e.preventDefault();
@@ -79,7 +107,7 @@ export default function LeadsTable({ onSelectLead }: LeadsTableProps) {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [filtered, keyboardIndex, onSelectLead, logOpen, showAddModal]);
+  }, [filtered, keyboardIndex, onSelectLead, logOpen, showAddModal, clientOpen]);
 
   // Scroll keyboard-selected row into view.
   const rowRefs = useRef<Record<number, HTMLTableRowElement | null>>({});
@@ -92,6 +120,11 @@ export default function LeadsTable({ onSelectLead }: LeadsTableProps) {
   const handleLogContact = (leadId: string) => {
     setLogLeadId(leadId);
     setLogOpen(true);
+  };
+
+  const handleMarkAsClient = (leadId: string) => {
+    setClientLeadId(leadId);
+    setClientOpen(true);
   };
 
   return (
@@ -128,19 +161,73 @@ export default function LeadsTable({ onSelectLead }: LeadsTableProps) {
 
       {/* Top bar */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
-        <span
-          className="text-xs px-3 py-1.5 rounded-full border"
-          style={{
-            borderColor: GOLD,
-            color: GOLD,
-            background: 'rgba(201,168,76,0.05)',
-          }}
-        >
-          {loading ? '…' : `${filtered.length} Leads`}
-          {filtered.length !== leads.length && !loading
-            ? ` (of ${leads.length})`
-            : ''}
-        </span>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span
+            className="text-xs px-3 py-1.5 rounded-full border"
+            style={{
+              borderColor: GOLD,
+              color: GOLD,
+              background: 'rgba(201,168,76,0.05)',
+            }}
+          >
+            {loading ? '…' : `${filtered.length} Leads`}
+            {filtered.length !== leads.length && !loading
+              ? ` (of ${leads.length})`
+              : ''}
+          </span>
+
+          {/* Client filter chips */}
+          <div
+            role="tablist"
+            aria-label="Client filter"
+            className="inline-flex items-center p-0.5 rounded-full bg-[#121212] border border-[#1f1f1f]"
+          >
+            {(
+              [
+                { key: 'all', label: 'All' },
+                { key: 'leads', label: 'Leads' },
+                { key: 'clients', label: 'Clients' },
+              ] as const
+            ).map((opt) => {
+              const active = clientFilter === opt.key;
+              const showCount = opt.key === 'clients' && clientCount > 0;
+              return (
+                <button
+                  key={opt.key}
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setClientFilter(opt.key)}
+                  className={`inline-flex items-center gap-1.5 text-xs px-3 py-1 rounded-full transition-colors ${
+                    active
+                      ? 'text-black font-semibold'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                  style={active ? { background: GOLD } : undefined}
+                >
+                  {opt.key === 'clients' && (
+                    <Star
+                      className="w-3 h-3"
+                      style={{
+                        color: active ? '#000' : GOLD,
+                        fill: active ? '#000' : GOLD,
+                      }}
+                    />
+                  )}
+                  {opt.label}
+                  {showCount && (
+                    <span
+                      className={`text-[10px] px-1.5 rounded-full ${
+                        active ? 'bg-black/15' : 'bg-[#C9A84C]/15'
+                      }`}
+                    >
+                      {clientCount}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
         <div className="flex items-center gap-3 flex-wrap ml-auto">
           {/* Search */}
@@ -228,6 +315,7 @@ export default function LeadsTable({ onSelectLead }: LeadsTableProps) {
                     isKeyboardActive={keyboardIndex === i}
                     onOpen={() => onSelectLead(lead.id)}
                     onLogContact={() => handleLogContact(lead.id)}
+                    onMarkAsClient={() => handleMarkAsClient(lead.id)}
                     rowRef={(el) => {
                       rowRefs.current[i] = el;
                     }}
@@ -252,6 +340,14 @@ export default function LeadsTable({ onSelectLead }: LeadsTableProps) {
         open={showAddModal}
         onClose={() => setShowAddModal(false)}
       />
+      <MarkAsClientModal
+        leadId={clientLeadId}
+        open={clientOpen}
+        onClose={() => {
+          setClientOpen(false);
+          setClientLeadId(null);
+        }}
+      />
     </div>
   );
 }
@@ -264,6 +360,7 @@ interface LeadRowProps {
   isKeyboardActive: boolean;
   onOpen: () => void;
   onLogContact: () => void;
+  onMarkAsClient: () => void;
   rowRef: (el: HTMLTableRowElement | null) => void;
 }
 
@@ -273,10 +370,12 @@ function LeadRow({
   isKeyboardActive,
   onOpen,
   onLogContact,
+  onMarkAsClient,
   rowRef,
 }: LeadRowProps) {
   const stage = (lead.contact_stage ?? 'not_contacted') as ContactStage;
   const attempts = lead.contact_attempts ?? 0;
+  const isClient = !!lead.is_existing_client;
   const lastContacted = lead.last_contacted_at
     ? safeRelative(lead.last_contacted_at)
     : 'Never';
@@ -288,14 +387,34 @@ function LeadRow({
       className={`border-b border-border cursor-pointer transition-colors ${
         isKeyboardActive
           ? 'bg-[#1a1a14]'
-          : 'hover:bg-secondary/30'
+          : isClient
+            ? 'bg-[#C9A84C]/[0.035] hover:bg-[#C9A84C]/[0.07]'
+            : 'hover:bg-secondary/30'
       }`}
     >
       <td className="px-4 py-3 text-muted-foreground text-xs">{index + 1}</td>
       <td className="px-4 py-3">
-        <p className="font-medium text-foreground">{lead.business_name}</p>
+        <div className="flex items-center gap-2">
+          {isClient && (
+            <span
+              title={
+                lead.became_client_at
+                  ? `Client since ${new Date(lead.became_client_at).toLocaleDateString()}`
+                  : 'Existing client'
+              }
+              aria-label="Existing client"
+              className="inline-flex"
+            >
+              <Star
+                className="w-4 h-4"
+                style={{ color: GOLD, fill: GOLD }}
+              />
+            </span>
+          )}
+          <p className="font-medium text-foreground">{lead.business_name}</p>
+        </div>
         {lead.state && (
-          <p className="text-xs text-muted-foreground">{lead.state}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">{lead.state}</p>
         )}
       </td>
       <td className="px-4 py-3 text-foreground">{lead.suburb ?? '—'}</td>
@@ -335,13 +454,38 @@ function LeadRow({
         className="px-4 py-3 text-right"
         onClick={(e) => e.stopPropagation()}
       >
-        <button
-          onClick={onLogContact}
-          className="text-xs px-3 py-1.5 rounded-md border transition-colors hover:bg-[#C9A84C]/10"
-          style={{ borderColor: `${GOLD}66`, color: GOLD }}
-        >
-          Log Contact
-        </button>
+        <div className="inline-flex items-center justify-end gap-2 flex-wrap">
+          {!isClient && (
+            <button
+              onClick={onMarkAsClient}
+              title="Mark as existing client"
+              className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-md border transition-colors hover:bg-[#C9A84C]/10"
+              style={{ borderColor: `${GOLD}66`, color: GOLD }}
+            >
+              <Star className="w-3 h-3" />
+              Already a Client
+            </button>
+          )}
+          {isClient && (
+            <span
+              className="inline-flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-full font-medium border"
+              style={{
+                borderColor: `${GOLD}66`,
+                color: GOLD,
+                background: 'rgba(201,168,76,0.08)',
+              }}
+            >
+              <Star className="w-3 h-3" style={{ fill: GOLD }} />
+              Client
+            </span>
+          )}
+          <button
+            onClick={onLogContact}
+            className="text-xs px-3 py-1.5 rounded-md border border-[#2a2a2a] text-muted-foreground transition-colors hover:border-[#C9A84C]/50 hover:text-foreground"
+          >
+            Log Contact
+          </button>
+        </div>
       </td>
     </tr>
   );

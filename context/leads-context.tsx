@@ -16,7 +16,7 @@ import type {
 } from '@/lib/types';
 
 const LEAD_COLS =
-  'id, business_name, contact_name, contact_email, contact_phone, suburb, state, google_rating, google_maps_url, website, lead_status, pipeline_stage, estimated_value, email_status, latitude, longitude, notes, contact_stage, contact_attempts, last_contacted_at, contact_notes';
+  'id, business_name, contact_name, contact_email, contact_phone, suburb, state, google_rating, google_maps_url, website, lead_status, pipeline_stage, estimated_value, email_status, latitude, longitude, notes, contact_stage, contact_attempts, last_contacted_at, contact_notes, is_existing_client, became_client_at';
 
 const ACTIVITY_COLS =
   'id, lead_id, stage, attempt_number, channel, outcome, notes, contacted_by, created_at';
@@ -49,6 +49,9 @@ interface LeadsContextValue {
 
   /** Compact "Log Contact" flow — writes lead + activity row. */
   logContact: (input: LogContactInput) => Promise<void>;
+
+  /** Mark lead as an existing client: sets flag + timestamp + stage = acquired. */
+  markAsClient: (leadId: string) => Promise<void>;
 
   /** Mark email_status = 'sent' optimistically (used by outreach screen). */
   setLeadEmailSent: (id: string) => void;
@@ -298,6 +301,54 @@ export function LeadsProvider({ children }: { children: React.ReactNode }) {
     [applyLocal],
   );
 
+  const markAsClient = useCallback(
+    async (leadId: string) => {
+      const supabase = getSupabaseClient();
+      if (!supabase) return;
+      const lead = leads.find((l) => l.id === leadId);
+      if (!lead) return;
+
+      const now = new Date().toISOString();
+      const becameAt = lead.became_client_at ?? now;
+      const newAttempts = (lead.contact_attempts ?? 0) + 1;
+
+      // Optimistic
+      applyLocal(leadId, {
+        is_existing_client: true,
+        became_client_at: becameAt,
+        contact_stage: 'acquired',
+        contact_attempts: newAttempts,
+        last_contacted_at: now,
+      });
+
+      const { error: updErr } = await supabase
+        .from('coffee_leads')
+        .update({
+          is_existing_client: true,
+          became_client_at: becameAt,
+          contact_stage: 'acquired',
+          contact_attempts: newAttempts,
+          last_contacted_at: now,
+        })
+        .eq('id', leadId);
+      if (updErr) {
+        setError(updErr.message);
+        return;
+      }
+
+      await supabase.from('contact_activity').insert({
+        lead_id: leadId,
+        stage: 'acquired',
+        attempt_number: newAttempts,
+        channel: null,
+        outcome: 'marked_as_client',
+        notes: 'Marked as existing client',
+      });
+      reloadActivity();
+    },
+    [leads, applyLocal, reloadActivity],
+  );
+
   const getActivity = useCallback(
     async (leadId: string): Promise<ContactActivity[]> => {
       const supabase = getSupabaseClient();
@@ -324,6 +375,7 @@ export function LeadsProvider({ children }: { children: React.ReactNode }) {
       setAttempts,
       saveNotes,
       logContact,
+      markAsClient,
       setLeadEmailSent,
       recentActivity,
       recentActivityLoading,
@@ -340,6 +392,7 @@ export function LeadsProvider({ children }: { children: React.ReactNode }) {
       setAttempts,
       saveNotes,
       logContact,
+      markAsClient,
       setLeadEmailSent,
       recentActivity,
       recentActivityLoading,

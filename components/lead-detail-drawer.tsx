@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useLeads } from '@/context/leads-context';
+import MarkAsClientModal from '@/components/mark-as-client-modal';
 import {
   CONTACT_STAGES,
   CONTACT_STAGE_LABEL,
@@ -66,6 +67,9 @@ export default function LeadDetailDrawer({
   const [callOutcome, setCallOutcome] = useState('reached');
   const [callNotes, setCallNotes] = useState('');
   const [callSaving, setCallSaving] = useState(false);
+
+  // "Already a Client" confirmation modal
+  const [clientModalOpen, setClientModalOpen] = useState(false);
 
   // Reset drawer state when lead changes / drawer opens
   useEffect(() => {
@@ -178,9 +182,39 @@ export default function LeadDetailDrawer({
         {/* Header */}
         <div className="sticky top-0 z-10 bg-card border-b border-border px-6 py-4 flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <h2 className="text-xl font-bold text-foreground truncate">
-              {lead.business_name}
-            </h2>
+            <div className="flex items-center gap-2 min-w-0">
+              {lead.is_existing_client && (
+                <span
+                  title={
+                    lead.became_client_at
+                      ? `Client since ${new Date(lead.became_client_at).toLocaleDateString()}`
+                      : 'Existing client'
+                  }
+                  aria-label="Existing client"
+                  className="inline-flex shrink-0"
+                >
+                  <Star
+                    className="w-5 h-5"
+                    style={{ color: GOLD, fill: GOLD }}
+                  />
+                </span>
+              )}
+              <h2 className="text-xl font-bold text-foreground truncate">
+                {lead.business_name}
+              </h2>
+              {lead.is_existing_client && (
+                <span
+                  className="inline-flex items-center gap-1 shrink-0 text-[10px] font-medium px-2 py-0.5 rounded-full border"
+                  style={{
+                    borderColor: `${GOLD}66`,
+                    color: GOLD,
+                    background: 'rgba(201,168,76,0.08)',
+                  }}
+                >
+                  Client
+                </span>
+              )}
+            </div>
             <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5">
               <MapPin className="w-3 h-3" />
               {[lead.suburb, lead.state].filter(Boolean).join(', ') || '—'}
@@ -465,26 +499,66 @@ export default function LeadDetailDrawer({
               </div>
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => onDraftOutreach?.(lead.id)}
-                className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg font-semibold text-black text-sm transition-all hover:brightness-110"
-                style={{ background: GOLD }}
-              >
-                <Sparkles className="w-4 h-4" />
-                Draft Outreach Email
-              </button>
-              <button
-                onClick={() => setCallOpen(true)}
-                className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg border border-[#2a2a2a] text-foreground text-sm hover:border-[#C9A84C]/50 transition-colors"
-              >
-                <PhoneCall className="w-4 h-4" />
-                Log a Call
-              </button>
-            </div>
+            <>
+              {!lead.is_existing_client ? (
+                <button
+                  onClick={() => setClientModalOpen(true)}
+                  className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg font-semibold text-sm transition-all hover:bg-[#C9A84C]/10"
+                  style={{
+                    border: `1px solid ${GOLD}`,
+                    color: GOLD,
+                    background: 'rgba(201,168,76,0.04)',
+                  }}
+                >
+                  <Star className="w-4 h-4" />
+                  Already a Client
+                </button>
+              ) : (
+                <div
+                  className="w-full inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium"
+                  style={{
+                    border: `1px solid ${GOLD}66`,
+                    color: GOLD,
+                    background: 'rgba(201,168,76,0.08)',
+                  }}
+                >
+                  <Star className="w-4 h-4" style={{ fill: GOLD }} />
+                  {lead.became_client_at
+                    ? `Client since ${new Date(lead.became_client_at).toLocaleDateString()}`
+                    : 'Existing client'}
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => onDraftOutreach?.(lead.id)}
+                  className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg font-semibold text-black text-sm transition-all hover:brightness-110"
+                  style={{ background: GOLD }}
+                >
+                  <Sparkles className="w-4 h-4" />
+                  Draft Outreach Email
+                </button>
+                <button
+                  onClick={() => setCallOpen(true)}
+                  className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg border border-[#2a2a2a] text-foreground text-sm hover:border-[#C9A84C]/50 transition-colors"
+                >
+                  <PhoneCall className="w-4 h-4" />
+                  Log a Call
+                </button>
+              </div>
+            </>
           )}
         </div>
       </aside>
+
+      <MarkAsClientModal
+        leadId={lead.id}
+        open={clientModalOpen}
+        onClose={() => setClientModalOpen(false)}
+        onConfirmed={() => {
+          // Refresh activity to reflect the new acquired/marked-as-client row.
+          void refreshActivity();
+        }}
+      />
     </>
   );
 }

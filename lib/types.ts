@@ -71,6 +71,10 @@ export interface CoffeeLead {
   last_contacted_at: string | null;
   /** Free-form sales notes (separate from generic `notes`). */
   contact_notes: string | null;
+  /** True once the lead has been marked as an existing client. */
+  is_existing_client: boolean | null;
+  /** ISO timestamp of the moment the lead became a client. */
+  became_client_at: string | null;
 }
 
 export interface ContactActivity {
